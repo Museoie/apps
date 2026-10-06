@@ -1,11 +1,12 @@
 # pg-gateway
 
-A tiny HTTP-to-Postgres proxy. It exists for one reason: to let a caller run
-SQL over HTTP while the database password is injected by the caller's
-credential vault (as an `Authorization: Bearer` header) instead of being
-handed to the caller directly. The gateway uses the password once per
-request to open the Postgres connection, then discards it. It never logs,
-stores, or echoes the password.
+A tiny HTTP-to-Postgres proxy written in TypeScript for the [Bun](https://bun.sh)
+runtime. It exists for one reason: to let a caller run SQL over HTTP while the
+database password is injected by the caller's credential vault (as an
+`Authorization: Bearer` header) instead of being handed to the caller
+directly. The gateway uses the password once per request to open the
+Postgres connection, then discards it. It never logs, stores, or echoes the
+password.
 
 ## Protocol
 
@@ -16,7 +17,7 @@ POST /query
   Authorization: Bearer <db-password>
   Content-Type: application/json
 
-  {"sql": "select id, name from users where id = %s", "params": ["..."]}
+  {"sql": "select id, name from users where id = $1", "params": ["..."]}
 ```
 
 Response `200`:
@@ -26,8 +27,8 @@ Response `200`:
 ```
 
 Errors come back as `{"error": "..."}` with a 4xx/5xx status. Queries are
-parameterized server-side (`%s` placeholders), and results are capped
-(`MAX_ROWS`) with a per-query statement timeout.
+parameterized server-side, and results are capped (`MAX_ROWS`) with a
+per-query statement timeout.
 
 ## Configuration
 
@@ -39,7 +40,7 @@ All via environment:
 | `PGPORT`             | no       | `5432`      |                                        |
 | `PGDATABASE`         | yes      | —           |                                        |
 | `PGUSER`             | yes      | —           | Use a least-privilege (read-only) role |
-| `PGSSLMODE`          | no       | `require`   | TLS to the database                    |
+| `PGSSLMODE`          | no       | `require`   | `require` or `disable`                 |
 | `PORT`               | no       | `8080`      | HTTP listen port                       |
 | `STATEMENT_TIMEOUT_MS` | no     | `30000`     | Per-query timeout                      |
 | `MAX_ROWS`           | no       | `10000`     | Max rows returned per query            |
@@ -48,8 +49,8 @@ All via environment:
 
 ```bash
 # local
-pip install -r requirements.txt
-PGHOST=localhost PGDATABASE=mydb PGUSER=museoie python src/gateway.py
+bun install
+PGHOST=localhost PGDATABASE=mydb PGUSER=museoie bun src/gateway.ts
 
 # docker
 docker build -t pg-gateway .

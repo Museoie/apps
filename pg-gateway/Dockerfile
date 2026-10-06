@@ -1,10 +1,10 @@
-FROM python:3.12-slim
+FROM oven/bun:1-slim
 
 WORKDIR /srv
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY package.json ./
+RUN bun install --production
 COPY src/ ./src/
 
 ENV PORT=8080
 EXPOSE 8080
-CMD ["python", "src/gateway.py"]
+CMD ["bun", "src/gateway.ts"]
