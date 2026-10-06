@@ -17,7 +17,7 @@ POST /query
   Authorization: Bearer <db-password>
   Content-Type: application/json
 
-  {"connection": "budget", "sql": "select id, name from users where id = $1", "params": ["..."]}
+  {"sql": "select id, name from users where id = $1", "params": ["..."]}
 ```
 
 Response `200`:
@@ -32,40 +32,31 @@ per-query statement timeout.
 
 ## Configuration
 
-All via environment. The gateway can serve any number of databases: each
-gets a name in `PG_CONNECTIONS`, and requests pick one with
-`"connection": "<name>"`. Connection destinations always come from this
-server-side config — never from the request — so the gateway can't be
-abused to probe arbitrary hosts (SSRF).
+All via environment:
 
-| Var                    | Required | Default     | Notes                                       |
-|------------------------|----------|-------------|---------------------------------------------|
-| `PG_CONNECTIONS`       | yes      | —           | JSON map: name → `{host, port?, database,   |
-|                        |          |             | username, sslmode?}`. `port` defaults to   |
-|                        |          |             | 5432, `sslmode` to `require`.               |
-| `PORT`                 | no       | `8080`      | HTTP listen port                            |
-| `STATEMENT_TIMEOUT_MS` | no       | `30000`     | Per-query timeout                           |
-| `MAX_ROWS`             | no       | `10000`     | Max rows returned per query                 |
-
-Example:
-
-```bash
-export PG_CONNECTIONS='{
-  "budget": {"host": "postgres.hoie.kim", "database": "budget", "username": "museoie"},
-  "inbox":  {"host": "postgres.hoie.kim", "database": "inbox",  "username": "museoie"}
-}'
-```
+| Var                  | Required | Default     | Notes                                  |
+|----------------------|----------|-------------|----------------------------------------|
+| `PGHOST`             | yes      | —           | Postgres host                          |
+| `PGPORT`             | no       | `5432`      |                                        |
+| `PGDATABASE`         | yes      | —           |                                        |
+| `PGUSER`             | yes      | —           | Use a least-privilege (read-only) role |
+| `PGSSLMODE`          | no       | `require`   | `require` or `disable`                 |
+| `PORT`               | no       | `8080`      | HTTP listen port                       |
+| `STATEMENT_TIMEOUT_MS` | no     | `30000`     | Per-query timeout                      |
+| `MAX_ROWS`           | no       | `10000`     | Max rows returned per query            |
 
 ## Run it
 
 ```bash
 # local
 bun install
-bun src/gateway.ts
+PGHOST=localhost PGDATABASE=mydb PGUSER=museoie bun src/gateway.ts
 
 # docker
 docker build -t pg-gateway .
-docker run -p 8080:8080 -e PG_CONNECTIONS="$PG_CONNECTIONS" pg-gateway
+docker run -p 8080:8080 \
+  -e PGHOST=postgres.hoie.kim -e PGDATABASE=postgres -e PGUSER=museoie \
+  pg-gateway
 ```
 
 Test:
@@ -75,7 +66,7 @@ curl -s localhost:8080/health
 curl -s -X POST localhost:8080/query \
   -H "Authorization: Bearer $DB_PASSWORD" \
   -H "Content-Type: application/json" \
-  -d '{"connection": "budget", "sql": "select current_user, current_database()"}'
+  -d '{"sql": "select current_user, current_database()"}'
 ```
 
 ## Deploy notes
