@@ -9,45 +9,79 @@
  * it. The password is never logged, never stored, and never appears in
  * responses.
  *
+ * The gateway serves any number of pre-configured connections. Connection
+ * details (host/port/database/user) come from server config; the request
+ * only names which connection to use. Destinations are never taken from the
+ * request itself — letting callers dial arbitrary host:ports would turn the
+ * gateway into an SSRF oracle into the network it runs on.
+ *
  * Protocol
  * --------
  * GET  /health   -> {"ok": true}                      (no auth, for probes)
  * POST /query
  *   Authorization: Bearer <db-password>
- *   {"sql": "select ...", "params": [...]}
+ *   {"connection": "budget", "sql": "select ...", "params": [...]}
  *   -> {"columns": [...], "rows": [[...]], "rowCount": n, "truncated": bool}
  *   -> {"error": "..."} with 4xx/5xx on failure
  *
  * Configuration (environment)
  * ---------------------------
- * PGHOST                Postgres host (required)
- * PGPORT                Postgres port (default 5432)
- * PGDATABASE            Database name (required)
- * PGUSER                Database user (required)
- * PGSSLMODE             "require" (default) or "disable"
- * PORT                  HTTP listen port (default 8080)
- * STATEMENT_TIMEOUT_MS  per-query timeout (default 30000)
- * MAX_ROWS              max rows returned per query (default 10000)
+ * PG_CONNECTIONS          JSON map of name -> {host, port?, database,
+ *                         username, sslmode?}. Required. Example:
+ *                         {"budget":{"host":"db.internal","database":"budget",
+ *                          "username":"museoie"},
+ *                          "inbox":{"host":"db.internal","port":5433,
+ *                          "database":"inbox","username":"museoie"}}
+ *                         port defaults to 5432, sslmode to "require".
+ * PORT                    HTTP listen port (default 8080)
+ * STATEMENT_TIMEOUT_MS    per-query timeout (default 30000)
+ * MAX_ROWS                max rows returned per query (default 10000)
  *
- * Write protection is enforced by the database role's own grants (this
- * gateway is meant to be used with a read-only role). The gateway itself
+ * Write protection is enforced by the database roles' own grants (this
+ * gateway is meant to be used with read-only roles). The gateway itself
  * does not try to parse or restrict SQL.
  */
 
 import postgres from "postgres";
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`missing required env ${name}`);
-  return v;
+interface ConnDef {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  sslmode: string;
 }
 
+function loadConnections(): Record<string, ConnDef> {
+  const raw = process.env.PG_CONNECTIONS;
+  if (!raw) throw new Error("missing required env PG_CONNECTIONS");
+  let parsed: Record<string, any>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("PG_CONNECTIONS is not valid JSON");
+  }
+  const out: Record<string, ConnDef> = {};
+  for (const [name, c] of Object.entries(parsed ?? {})) {
+    if (!c || typeof c !== "object") throw new Error(`connection "${name}" is not an object`);
+    if (!c.host || !c.database || !c.username) {
+      throw new Error(`connection "${name}" needs host, database and username`);
+    }
+    out[name] = {
+      host: String(c.host),
+      port: c.port ?? 5432,
+      database: String(c.database),
+      username: String(c.username),
+      sslmode: c.sslmode ?? "require",
+    };
+  }
+  if (Object.keys(out).length === 0) throw new Error("PG_CONNECTIONS defines no connections");
+  return out;
+}
+
+const CONNECTIONS = loadConnections();
+
 const CFG = {
-  pghost: requiredEnv("PGHOST"),
-  pgport: parseInt(process.env.PGPORT ?? "5432", 10),
-  pgdatabase: requiredEnv("PGDATABASE"),
-  pguser: requiredEnv("PGUSER"),
-  pgsslmode: process.env.PGSSLMODE ?? "require",
   port: parseInt(process.env.PORT ?? "8080", 10),
   statementTimeoutMs: parseInt(process.env.STATEMENT_TIMEOUT_MS ?? "30000", 10),
   maxRows: parseInt(process.env.MAX_ROWS ?? "10000", 10),
@@ -106,8 +140,16 @@ async function handleQuery(req: Request): Promise<Response> {
   } catch {
     return jsonResponse({ error: "invalid JSON body" }, 400);
   }
+  const connectionName = payload?.connection;
   const sqlText = payload?.sql;
   const params = payload?.params ?? [];
+  const conn = typeof connectionName === "string" ? CONNECTIONS[connectionName] : undefined;
+  if (!conn) {
+    return jsonResponse(
+      { error: `unknown connection (available: ${Object.keys(CONNECTIONS).join(", ")})` },
+      400,
+    );
+  }
   if (typeof sqlText !== "string" || !sqlText.trim()) {
     return jsonResponse({ error: "body.sql must be a non-empty string" }, 400);
   }
@@ -116,12 +158,12 @@ async function handleQuery(req: Request): Promise<Response> {
   }
 
   const sql = postgres({
-    host: CFG.pghost,
-    port: CFG.pgport,
-    database: CFG.pgdatabase,
-    username: CFG.pguser,
+    host: conn.host,
+    port: conn.port,
+    database: conn.database,
+    username: conn.username,
     password,
-    ssl: CFG.pgsslmode === "disable" ? false : "require",
+    ssl: conn.sslmode === "disable" ? false : "require",
     max: 1,
     connect_timeout: 10,
   });
@@ -166,7 +208,7 @@ Bun.serve({
 });
 
 // Deliberately minimal logging: never log headers (Authorization carries
-// the database password).
+// the database password), and log connection names only.
 console.log(
-  `pg-gateway listening on :${CFG.port} -> ${CFG.pghost}:${CFG.pgport}/${CFG.pgdatabase} as ${CFG.pguser}`,
+  `pg-gateway listening on :${CFG.port} (connections: ${Object.keys(CONNECTIONS).join(", ")})`,
 );
