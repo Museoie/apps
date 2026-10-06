@@ -42,7 +42,10 @@ abused to probe arbitrary hosts (SSRF).
 |------------------------|----------|-------------|---------------------------------------------|
 | `PG_CONNECTIONS`       | yes      | —           | JSON map: name → `{host, port?, database,   |
 |                        |          |             | username, sslmode?}`. `port` defaults to   |
-|                        |          |             | 5432, `sslmode` to `require`.               |
+|                        |          |             | 5432; `sslmode` defaults to `PGSSLMODE`,   |
+|                        |          |             | then `require`.                            |
+| `PGSSLMODE`            | no       | `require`   | Default TLS mode for connections that      |
+|                        |          |             | don't set `sslmode` (`require`/`disable`)  |
 | `PORT`                 | no       | `8080`      | HTTP listen port                            |
 | `STATEMENT_TIMEOUT_MS` | no       | `30000`     | Per-query timeout                           |
 | `MAX_ROWS`             | no       | `10000`     | Max rows returned per query                 |

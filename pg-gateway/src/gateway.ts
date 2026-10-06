@@ -32,7 +32,8 @@
  *                          "username":"museoie"},
  *                          "inbox":{"host":"db.internal","port":5433,
  *                          "database":"inbox","username":"museoie"}}
- *                         port defaults to 5432, sslmode to "require".
+ *                         port defaults to 5432. sslmode defaults to the
+ *                         PGSSLMODE env var, then to "require".
  * PORT                    HTTP listen port (default 8080)
  * STATEMENT_TIMEOUT_MS    per-query timeout (default 30000)
  * MAX_ROWS                max rows returned per query (default 10000)
@@ -72,7 +73,7 @@ function loadConnections(): Record<string, ConnDef> {
       port: c.port ?? 5432,
       database: String(c.database),
       username: String(c.username),
-      sslmode: c.sslmode ?? "require",
+      sslmode: c.sslmode ?? process.env.PGSSLMODE ?? "require",
     };
   }
   if (Object.keys(out).length === 0) throw new Error("PG_CONNECTIONS defines no connections");
