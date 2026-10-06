@@ -151,6 +151,7 @@ async function handleQuery(req: Request): Promise<Response> {
 }
 
 Bun.serve({
+  hostname: "0.0.0.0",
   port: CFG.port,
   async fetch(req) {
     const { pathname } = new URL(req.url);
